@@ -28,44 +28,49 @@ cd udp-proxy-zig
 To run the proxy, you need to initialize it with the listener's and forwarder's IP addresses and ports. Here's an example:
 
 ```zig
-const ProxySocketPair = @import("proxy_socket_pair.zig");
+pub fn main() !void {
+    const proxyLib = @import("proxy.zig");
 
-const proxy = try ProxySocketPair.init(
-    "127.0.0.1", 8080, // Listener IP and port
-    "127.0.0.1", 9090  // Forwarder IP and port
-);
+    const proxy = try proxyLib.ProxySocketPair.init(
+        "127.0.0.1", 8080, // Listener IP and port
+        "127.0.0.1", 9090 // Forwarder IP and port
+    );
 
-try proxy.start();
+    try proxy.start(5000);
+}
+
 ```
 
 You can also run the proxy with custom callback functions to process the data being proxied. Here's an example:
 
 ```zig
-const ProxySocketPair = @import("proxy_socket_pair.zig");
-const CBFunction = @import("proxy_socket_pair.zig");
+const proxy = @import("proxy.zig");
 
 fn processPacketFunction(data: []u8, dataLen: usize) usize {
     if (data.len > 10 and data[7] == 0x4f) {
         data[5] = 0xff;
     }
+    return dataLen;
 }
 
-fn main() {
-    const processPacketFuncCBListenerToForward: CBFunction = &processPacketFunction;
-    const processPacketFuncCBForwardToListener: CBFunction = &processPacketFunction;
+pub fn main() !void {
+    const processPacketFuncCBListenerToForward: proxy.CBFunction = &processPacketFunction;
+    const processPacketFuncCBForwardToListener: proxy.CBFunction = &processPacketFunction;
 
-    const udpProxy = try ProxySocketPair.initWithCB(
-        "127.0.0.1", 8080,
-        "127.0.0.1", 9090,
+    const udpProxy = try proxy.ProxySocketPair.initWithCB(
+        "127.0.0.1",
+        8080,
+        "127.0.0.1",
+        9090,
         processPacketFuncCBListenerToForward,
         processPacketFuncCBForwardToListener,
     );
 
-    try udpProxy.start();
+    try udpProxy.start(5000);
 }
 ```
 
-In this example, `CBFunction` is defined as `*const fn ([]u8, usize) usize`.
+Callback functions have the type, `proxy.CBFunction` which is defined as `*const fn ([]u8, usize) usize`.
 
 This code sets up a UDP proxy server that listens on `127.0.0.1:8080` and forwards packets to `127.0.0.1:9090`. In the second example, it also modifies the fifth byte to `0xff` if the seventh byte equals `0x4f`.
 
