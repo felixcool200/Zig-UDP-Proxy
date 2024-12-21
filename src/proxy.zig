@@ -1,41 +1,29 @@
 const std = @import("std");
-//const testing = std.testing;
-//
-//export fn add(a: i32, b: i32) i32 {
-//    return a + b;
-//}
-//
-//test "basic add functionality" {
-//    try testing.expect(add(3, 7) == 10);
-//}
-//
-//test "adding negative numbers" {
-//    try testing.expect(add(-100, -51) == -151);
-//}
 
-const READ_BUF_SIZE = 4096;
+pub const CBFunction: type = *const fn ([]u8, usize) usize;
+const BUFFERSIZE = 4096;
 
 const Socket = struct {
     address: std.net.Address,
     socket: std.posix.socket_t,
-    processPacketCallback: *const fn ([]u8, usize) usize,
+    processPacketCallback: CBFunction,
 };
 
 pub const ProxySocketPair = struct {
     listener: Socket,
     forward: Socket,
 
-    pub fn init(listen_ip: []const u8, listen_port: u16, forward_ip: []const u8, forward_port: u16) !ProxySocketPair {
-        initWithCB(listen_ip, listen_port, forward_ip, forward_port, &defaultProcessPacketFunction, &defaultProcessPacketFunction);
+    pub fn init(listenIP: []const u8, listenPort: u16, forwardIP: []const u8, forwardPort: u16) !ProxySocketPair {
+        initWithCB(listenIP, listenPort, forwardIP, forwardPort, &defaultProcessPacketFunction, &defaultProcessPacketFunction);
     }
 
     pub fn initWithCB(
-        listen_ip: []const u8,
-        listen_port: u16,
-        forward_ip: []const u8,
-        forward_port: u16,
-        processPacketFuncListenerToForward: *const fn ([]u8, usize) usize,
-        processPacketFuncForwardToListener: *const fn ([]u8, usize) usize,
+        listenIP: []const u8,
+        listenPort: u16,
+        forwardIP: []const u8,
+        forwardPort: u16,
+        processPacketFuncListenerToForward: CBFunction,
+        processPacketFuncForwardToListener: CBFunction,
     ) !ProxySocketPair {
         const listenSock = try std.posix.socket(
             std.posix.AF.INET,
@@ -54,12 +42,12 @@ pub const ProxySocketPair = struct {
 
         return ProxySocketPair{
             .listener = Socket{
-                .address = try std.net.Address.parseIp4(listen_ip, listen_port),
+                .address = try std.net.Address.parseIp4(listenIP, listenPort),
                 .socket = listenSock,
                 .processPacketCallback = processPacketFuncListenerToForward,
             },
             .forward = Socket{
-                .address = try std.net.Address.parseIp4(forward_ip, forward_port),
+                .address = try std.net.Address.parseIp4(forwardIP, forwardPort),
                 .socket = forwardsock,
                 .processPacketCallback = processPacketFuncForwardToListener,
             },
@@ -102,7 +90,7 @@ pub const ProxySocketPair = struct {
         }
     }
 
-    pub fn start(self: *const ProxySocketPair, timeout_ms: i32) !void {
+    pub fn start(self: *const ProxySocketPair, timeoutMs: i32) !void {
 
         //Bind to listener
         try std.posix.bind(
@@ -114,18 +102,18 @@ pub const ProxySocketPair = struct {
         //File descriptors to enable polling
         var pollfds = self.getPollFds();
         // Wait for events with a 5-second timeout
-        var buffer: [READ_BUF_SIZE]u8 = undefined;
+        var buffer: [BUFFERSIZE]u8 = undefined;
         std.debug.print("Starting proxy loop\n", .{});
 
         //Main proxy loop
         while (true) {
-            const ready_count: usize = try std.posix.poll(&pollfds, timeout_ms);
+            const readyCount: usize = try std.posix.poll(&pollfds, timeoutMs);
 
             //Break on no use
-            if (ready_count == 0) {
+            if (readyCount == 0) {
                 std.debug.print(
                     "No packets recived in {d}s, exiting\n",
-                    .{@as(f32, @floatFromInt(timeout_ms)) / 1000},
+                    .{@as(f32, @floatFromInt(timeoutMs)) / 1000},
                 );
                 return;
             }
