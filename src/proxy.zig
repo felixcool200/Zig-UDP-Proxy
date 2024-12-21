@@ -14,7 +14,7 @@ pub const ProxySocketPair = struct {
     forward: Socket,
 
     pub fn init(listenIP: []const u8, listenPort: u16, forwardIP: []const u8, forwardPort: u16) !ProxySocketPair {
-        initWithCB(listenIP, listenPort, forwardIP, forwardPort, &defaultProcessPacketFunction, &defaultProcessPacketFunction);
+        return try initWithCB(listenIP, listenPort, forwardIP, forwardPort, &defaultProcessPacketFunction, &defaultProcessPacketFunction);
     }
 
     pub fn initWithCB(
