@@ -18,6 +18,7 @@ const READ_BUF_SIZE = 4096;
 const Socket = struct {
     address: std.net.Address,
     socket: std.posix.socket_t,
+    processPacketCallback: *const fn ([]u8, usize) usize,
 };
 
 pub const ProxySocketPair = struct {
@@ -25,6 +26,10 @@ pub const ProxySocketPair = struct {
     forward: Socket,
 
     pub fn init(listen_ip: []const u8, listen_port: u16, forward_ip: []const u8, forward_port: u16) !ProxySocketPair {
+        initWithCB(listen_ip, listen_port, forward_ip, forward_port, &defaultProcessPacketFunction, &defaultProcessPacketFunction);
+    }
+
+    pub fn initWithCB(listen_ip: []const u8, listen_port: u16, forward_ip: []const u8, forward_port: u16, processPacketFuncListenerToForward: *const fn ([]u8, usize) usize, processPacketFuncForwardToListener: *const fn ([]u8, usize) usize) !ProxySocketPair {
         const listenSock = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
         const forwardsock = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
 
@@ -36,12 +41,18 @@ pub const ProxySocketPair = struct {
             .listener = Socket{
                 .address = try std.net.Address.parseIp4(listen_ip, listen_port),
                 .socket = listenSock,
+                .processPacketCallback = processPacketFuncListenerToForward,
             },
             .forward = Socket{
                 .address = try std.net.Address.parseIp4(forward_ip, forward_port),
                 .socket = forwardsock,
+                .processPacketCallback = processPacketFuncForwardToListener,
             },
         };
+    }
+
+    fn defaultProcessPacketFunction(_: []u8, dataLen: usize) usize {
+        return dataLen;
     }
 
     fn getPollFds(self: *const ProxySocketPair) [2]std.posix.pollfd {
@@ -49,12 +60,12 @@ pub const ProxySocketPair = struct {
             .{
                 .fd = self.listener.socket,
                 .events = std.posix.POLL.IN,
-                .revents = 0, // Initialize revents
+                .revents = 0, // Is filled in by poll function
             },
             .{
                 .fd = self.forward.socket,
                 .events = std.posix.POLL.IN,
-                .revents = 0, // Initialize revents
+                .revents = 0, // Is filled in by poll function
             },
         };
     }
@@ -70,37 +81,24 @@ pub const ProxySocketPair = struct {
         }
     }
 
-    fn processPacketListenerToForward(buffer: []u8, dataLen: usize) usize {
-        if (buffer[10] == 0x11) {
-            //std.debug.print("Found 0x11\n", .{});
-        }
-        return dataLen;
-    }
-
-    fn processPacketForwardToListener(buffer: []u8, dataLen: usize) usize {
-        if (buffer[10] == 0x11) {
-            //std.debug.print("Found 0x11\n", .{});
-        }
-        return dataLen;
-    }
-
-    pub fn start(self: *const ProxySocketPair) !void {
+    pub fn start(self: *const ProxySocketPair, timeout_ms: i32) !void {
 
         //Bind to listener
         try std.posix.bind(self.listener.socket, &self.listener.address.any, self.listener.address.getOsSockLen());
+
         //File descriptors to enable polling
         var pollfds = self.getPollFds();
-
         // Wait for events with a 5-second timeout
         var buffer: [READ_BUF_SIZE]u8 = undefined;
-        const timeout_ms: i32 = 5000;
         std.debug.print("Starting proxy loop\n", .{});
 
+        //Main proxy loop
         while (true) {
             const ready_count: usize = try std.posix.poll(&pollfds, timeout_ms);
 
+            //Break on no use
             if (ready_count == 0) {
-                std.debug.print("No packets recived in {d}s, exiting\n", .{timeout_ms / 1000});
+                std.debug.print("No packets recived in {d}s, exiting\n", .{@as(f32, @floatFromInt(timeout_ms)) / 1000});
                 return;
             }
 
@@ -108,15 +106,17 @@ pub const ProxySocketPair = struct {
             for (pollfds) |fd| {
                 if ((fd.revents & std.posix.POLL.IN) != 0) {
                     //std.debug.print("Socket {d} is ready for reading\n", .{fd.fd});
-                    if (fd.fd == self.listener.socket) {
-                        const receivedBytes = try reciveBuffer(self.listener, buffer[0..]);
-                        const processedBytes = processPacketListenerToForward(buffer[0..], receivedBytes);
-                        //const processedBytes = processPacketListenerToForward(buffer[0..receivedBytes], receivedBytes);
-                        try sendBuffer(self.forward, buffer[0..processedBytes]);
-                    } else {
-                        const receivedBytes = try reciveBuffer(self.forward, buffer[0..]);
-                        const processedBytes = processPacketForwardToListener(buffer[0..], receivedBytes);
-                        try sendBuffer(self.listener, buffer[0..processedBytes]);
+
+                    // Define direction
+                    const condition = (fd.fd == self.listener.socket);
+                    const from = if (condition) self.listener else self.forward;
+                    const to = if (!condition) self.forward else self.listener;
+
+                    //Read process and send packet
+                    const receivedBytes: usize = try reciveBuffer(from, buffer[0..]);
+                    const processedBytes: usize = from.processPacketCallback(buffer[0..], receivedBytes);
+                    if (processedBytes > 0) {
+                        try sendBuffer(to, buffer[0..processedBytes]);
                     }
                 }
             }
