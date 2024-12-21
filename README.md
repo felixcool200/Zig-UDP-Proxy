@@ -33,7 +33,7 @@ pub fn main() !void {
 
     const proxy = try proxyLib.ProxySocketPair.init(
         "127.0.0.1", 8080, // Listener IP and port
-        "127.0.0.1", 9090 // Forwarder IP and port
+        "127.0.0.1", 9090, // Forwarder IP and port
     );
 
     try proxy.start(5000);
@@ -44,7 +44,7 @@ pub fn main() !void {
 You can also run the proxy with custom callback functions to process the data being proxied. Here's an example:
 
 ```zig
-const proxy = @import("proxy.zig");
+const proxyLib = @import("proxy.zig");
 
 fn processPacketFunction(data: []u8, dataLen: usize) usize {
     if (data.len > 10 and data[7] == 0x4f) {
@@ -54,19 +54,17 @@ fn processPacketFunction(data: []u8, dataLen: usize) usize {
 }
 
 pub fn main() !void {
-    const processPacketFuncCBListenerToForward: proxy.CBFunction = &processPacketFunction;
-    const processPacketFuncCBForwardToListener: proxy.CBFunction = &processPacketFunction;
+    const processPacketFuncCBListenerToForward: proxyLib.CBFunction = &processPacketFunction;
+    const processPacketFuncCBForwardToListener: proxyLib.CBFunction = &processPacketFunction;
 
-    const udpProxy = try proxy.ProxySocketPair.initWithCB(
-        "127.0.0.1",
-        8080,
-        "127.0.0.1",
-        9090,
+    const proxy = try proxyLib.ProxySocketPair.initWithCB(
+        "127.0.0.1", 8080, // Listener IP and port
+        "127.0.0.1", 9090, // Forwarder IP and port
         processPacketFuncCBListenerToForward,
         processPacketFuncCBForwardToListener,
     );
 
-    try udpProxy.start(5000);
+    try proxy.start(5000);
 }
 ```
 
