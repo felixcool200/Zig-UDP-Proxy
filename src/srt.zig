@@ -1,7 +1,7 @@
 const std = @import("std");
 const proxy = @import("proxy.zig");
 
-pub fn discardThreePacketsAfter(packetLimit: comptime_int) *const fn ([]u8, usize) usize {
+pub fn discardThreePacketsAfter(packetLimit: comptime_int) proxy.CBFunction {
     const PKT_LIMIT = packetLimit;
     const func = struct {
         fn discardThreePackets(data: []u8, dataLen: usize) usize {
@@ -60,17 +60,13 @@ test "discardThreePackets" {
     };
     const discardValue = 100;
     for (1..discardValue * 2) |i| {
-        var packet = [_]u8{
-            0x00, 0xde, 0xad, 0xbe,
-            0xeb, 0xbe, 0xef, 0x11,
-            0x22, 0x33, 0x55, 0x77,
-        };
+        var packet = correctData;
         const processedBytes = discardThreePacketsAfter(discardValue)(
             &packet,
             packet.len,
         );
         if (i == discardValue - 1 or i == discardValue or i == discardValue + 1) {
-            const zeroedData = [_]u8{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+            const zeroedData = [_]u8{0} ** correctData.len;
             try std.testing.expect(std.mem.eql(u8, &zeroedData, &packet));
             try std.testing.expect(processedBytes == 0);
         } else {

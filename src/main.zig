@@ -5,8 +5,8 @@ const srt = @import("srt.zig");
 pub fn main() !void {
     //Create the UDP Proxy with two callback functions.
 
-    const processPacketFuncCBListenerToForward = srt.discardThreePacketsAfter(1000);
-    const processPacketFuncCBForwardToListener = &srt.createSRTMalformedNAK;
+    const processPacketFuncCBListenerToForward: proxy.CBFunction = srt.discardThreePacketsAfter(1000);
+    const processPacketFuncCBForwardToListener: proxy.CBFunction = &srt.createSRTMalformedNAK;
     const udpProxy = try proxy.ProxySocketPair.initWithCB(
         "127.0.0.1",
         3000,
