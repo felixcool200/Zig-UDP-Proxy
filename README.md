@@ -25,20 +25,49 @@ cd udp-proxy-zig
 
 ### Running the Proxy
 
-To run the proxy, you need to initialize the proxy with the listener and forward IP addresses and ports. Example:
+To run the proxy, you need to initialize it with the listener's and forwarder's IP addresses and ports. Here's an example:
 
 ```zig
 const ProxySocketPair = @import("proxy_socket_pair.zig");
 
 const proxy = try ProxySocketPair.init(
-    "127.0.0.1", 8080, // listener IP and port
-    "127.0.0.1", 9090  // forward IP and port
+    "127.0.0.1", 8080, // Listener IP and port
+    "127.0.0.1", 9090  // Forwarder IP and port
 );
 
 try proxy.start();
 ```
 
-The above code will set up a UDP proxy server that listens on `127.0.0.1:8080` and forwards the packets to `127.0.0.1:9090`.
+You can also run the proxy with custom callback functions to process the data being proxied. Here's an example:
+
+```zig
+const ProxySocketPair = @import("proxy_socket_pair.zig");
+const CBFunction = @import("proxy_socket_pair.zig");
+
+fn processPacketFunction(data: []u8, dataLen: usize) usize {
+    if (data.len > 10 and data[7] == 0x4f) {
+        data[5] = 0xff;
+    }
+}
+
+fn main() {
+    const processPacketFuncCBListenerToForward: CBFunction = &processPacketFunction;
+    const processPacketFuncCBForwardToListener: CBFunction = &processPacketFunction;
+
+    const udpProxy = try ProxySocketPair.initWithCB(
+        "127.0.0.1", 8080,
+        "127.0.0.1", 9090,
+        processPacketFuncCBListenerToForward,
+        processPacketFuncCBForwardToListener,
+    );
+
+    try udpProxy.start();
+}
+```
+
+In this example, `CBFunction` is defined as `*const fn ([]u8, usize) usize`.
+
+This code sets up a UDP proxy server that listens on `127.0.0.1:8080` and forwards packets to `127.0.0.1:9090`. In the second example, it also modifies the fifth byte to `0xff` if the seventh byte equals `0x4f`.
 
 ### Code Explanation
 
