@@ -43,7 +43,9 @@ pub fn discardThreePacketsAfter(packetLimit: comptime_int) *const fn ([]u8, usiz
 //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
 pub fn createSRTMalformedNAK(data: []u8, dataLen: usize) usize {
-    if (data[1] == 0x03 and dataLen == 24 and data[16] & 0x80 != 0) { //IS A NAK, with only range (based on length), and first field is a range (start with a one)
+    // This is a NAK with only a range (based on length),
+    // and the first field represents a range (starting with 1).
+    if (data[1] == 0x03 and dataLen == 24 and data[16] & 0x80 != 0) {
         //std.debug.print("Found SRT NAK\n", .{});
         @memset(data[20..24], 0xff);
     }
@@ -51,10 +53,18 @@ pub fn createSRTMalformedNAK(data: []u8, dataLen: usize) usize {
 }
 
 test "discardThreePackets" {
-    const correctData = [_]u8{ 0x00, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01 };
+    const correctData = [_]u8{
+        0x00, 0xde, 0xad, 0xbe,
+        0xeb, 0xbe, 0xef, 0x11,
+        0x22, 0x33, 0x55, 0x77,
+    };
     const discardValue = 100;
     for (1..discardValue * 2) |i| {
-        var packet = [_]u8{ 0x00, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01 };
+        var packet = [_]u8{
+            0x00, 0xde, 0xad, 0xbe,
+            0xeb, 0xbe, 0xef, 0x11,
+            0x22, 0x33, 0x55, 0x77,
+        };
         const processedBytes = discardThreePacketsAfter(discardValue)(
             &packet,
             packet.len,

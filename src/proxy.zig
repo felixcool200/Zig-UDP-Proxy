@@ -29,9 +29,24 @@ pub const ProxySocketPair = struct {
         initWithCB(listen_ip, listen_port, forward_ip, forward_port, &defaultProcessPacketFunction, &defaultProcessPacketFunction);
     }
 
-    pub fn initWithCB(listen_ip: []const u8, listen_port: u16, forward_ip: []const u8, forward_port: u16, processPacketFuncListenerToForward: *const fn ([]u8, usize) usize, processPacketFuncForwardToListener: *const fn ([]u8, usize) usize) !ProxySocketPair {
-        const listenSock = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
-        const forwardsock = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
+    pub fn initWithCB(
+        listen_ip: []const u8,
+        listen_port: u16,
+        forward_ip: []const u8,
+        forward_port: u16,
+        processPacketFuncListenerToForward: *const fn ([]u8, usize) usize,
+        processPacketFuncForwardToListener: *const fn ([]u8, usize) usize,
+    ) !ProxySocketPair {
+        const listenSock = try std.posix.socket(
+            std.posix.AF.INET,
+            std.posix.SOCK.DGRAM,
+            0,
+        );
+        const forwardsock = try std.posix.socket(
+            std.posix.AF.INET,
+            std.posix.SOCK.DGRAM,
+            0,
+        );
 
         //On error call close
         errdefer std.posix.close(listenSock);
@@ -75,7 +90,13 @@ pub const ProxySocketPair = struct {
     }
 
     fn sendBuffer(toSock: Socket, buffer: []u8) !void {
-        const sentBytes = try std.posix.sendto(toSock.socket, buffer[0..], 0, &toSock.address.any, toSock.address.getOsSockLen());
+        const sentBytes = try std.posix.sendto(
+            toSock.socket,
+            buffer[0..],
+            0,
+            &toSock.address.any,
+            toSock.address.getOsSockLen(),
+        );
         if (sentBytes != buffer.len) {
             std.debug.print("WARNING: Not all bytes sent!", .{});
         }
@@ -84,7 +105,11 @@ pub const ProxySocketPair = struct {
     pub fn start(self: *const ProxySocketPair, timeout_ms: i32) !void {
 
         //Bind to listener
-        try std.posix.bind(self.listener.socket, &self.listener.address.any, self.listener.address.getOsSockLen());
+        try std.posix.bind(
+            self.listener.socket,
+            &self.listener.address.any,
+            self.listener.address.getOsSockLen(),
+        );
 
         //File descriptors to enable polling
         var pollfds = self.getPollFds();
@@ -98,7 +123,10 @@ pub const ProxySocketPair = struct {
 
             //Break on no use
             if (ready_count == 0) {
-                std.debug.print("No packets recived in {d}s, exiting\n", .{@as(f32, @floatFromInt(timeout_ms)) / 1000});
+                std.debug.print(
+                    "No packets recived in {d}s, exiting\n",
+                    .{@as(f32, @floatFromInt(timeout_ms)) / 1000},
+                );
                 return;
             }
 
