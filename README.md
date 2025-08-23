@@ -1,97 +1,183 @@
-# UDP Proxy Server in Zig
+# UDP Proxy in Zig
 
-This is a simple UDP proxy server written in Zig that listens for incoming UDP packets on one socket and forwards them to another address and port. The proxy also receives data from the forward socket and sends it back to the listener socket.
-
-The server utilizes the standard Zig library for networking and system-level operations. It includes basic functionality for creating UDP sockets, binding them to addresses, and forwarding data between sockets.
+A UDP packet forwarding library and utilities written in Zig. Supports custom packet processing through compile-time interfaces.
 
 ## Features
 
-- **UDP Packet Forwarding**: Listens on one UDP socket and forwards packets to another.
-- **Socket Management**: Manages two UDP sockets: one for listening and another for forwarding data.
-- **Polling**: Uses `poll` system calls to wait for data on either socket with a 5-second timeout.
-- **Custom Packet Processing**: Placeholder functionality for processing UDP packets before forwarding.
+- UDP packet forwarding between two endpoints
+- Compile-time duck-typed packet processors
+- Simple and advanced APIs for different use cases
+- Built-in processors for common tasks (logging, filtering, SRT protocol)
+- Library and executable builds
 
 ## Installation
 
-1. Ensure you have the Zig compiler installed. You can download it from [https://ziglang.org/download](https://ziglang.org/download).
-2. Clone this repository or copy the code into your project.
+Requires Zig 0.14+.
 
 ```bash
-git clone https://github.com/your-username/udp-proxy-zig.git
-cd udp-proxy-zig
+git clone <repository-url>
+cd zig-udp-proxy
+zig build
 ```
 
 ## Usage
 
-### Running the Proxy
+### As a Library
 
-To run the proxy, you need to initialize it with the listener's and forwarder's IP addresses and ports. Here's an example:
-
-```zig
-pub fn main() !void {
-    const proxyLib = @import("proxy.zig");
-
-    const proxy = try proxyLib.ProxySocketPair.init(
-        "127.0.0.1", 8080, // Listener IP and port
-        "127.0.0.1", 9090, // Forwarder IP and port
-    );
-
-    try proxy.start(5000);
-}
-
-```
-
-You can also run the proxy with custom callback functions to process the data being proxied. Here's an example:
+Basic proxy with custom processing:
 
 ```zig
-const proxyLib = @import("proxy.zig");
+const std = @import("std");
+const udp_proxy = @import("udp-proxy");
 
-fn processPacketFunction(data: []u8, dataLen: usize) usize {
-    if (data.len > 10 and data[7] == 0x4f) {
-        data[5] = 0xff;
+const MyProcessor = struct {
+    pub fn processListenerToForward(self: *@This(), buffer: []u8, packet: []u8) []u8 {
+        // Modify packet in-place, return slice of processed data
+        // Return packet[0..0] to drop packet
+        return packet; // Forward unchanged
     }
-    return dataLen;
-}
+    
+    pub fn processForwardToListener(self: *@This(), buffer: []u8, packet: []u8) []u8 {
+        // Can expand packet using buffer space if needed
+        return packet;
+    }
+};
 
 pub fn main() !void {
-    const processPacketFuncCBListenerToForward: proxyLib.CBFunction = &processPacketFunction;
-    const processPacketFuncCBForwardToListener: proxyLib.CBFunction = &processPacketFunction;
-
-    const proxy = try proxyLib.ProxySocketPair.initWithCB(
-        "127.0.0.1", 8080, // Listener IP and port
-        "127.0.0.1", 9090, // Forwarder IP and port
-        processPacketFuncCBListenerToForward,
-        processPacketFuncCBForwardToListener,
+    var processor = MyProcessor{};
+    var proxy = try udp_proxy.ProxySocketPairGeneric(MyProcessor).init(
+        processor, "127.0.0.1", 8080, "192.168.1.100", 9090
     );
-
-    try proxy.start(5000);
+    defer proxy.deinit();
+    
+    try proxy.start(5000); // Simple API
 }
 ```
 
-Callback functions have the type, `proxy.CBFunction` which is defined as `*const fn ([]u8, usize) usize`.
+Advanced API for custom event loops:
 
-This code sets up a UDP proxy server that listens on `127.0.0.1:8080` and forwards packets to `127.0.0.1:9090`. In the second example, it also modifies the fifth byte to `0xff` if the seventh byte equals `0x4f`.
+```zig
+try proxy.bind();
+var buffer: [4096]u8 = undefined;
 
-### Code Explanation
+while (condition) {
+    const poll_result = try proxy.poll(timeout_ms);
+    if (!poll_result.has_events) continue;
+    
+    for (poll_result.pollfds) |fd| {
+        _ = try proxy.processEvent(fd, &buffer);
+    }
+}
+```
 
-- **Socket Struct**: Represents a socket with its associated address and socket descriptor.
-- **ProxySocketPair**: A struct that holds two sockets — one for the listener and one for forwarding. It provides methods to initialize, bind, poll, and handle socket events.
-- **Packet Processing**: Two simple placeholder functions, `processPacketListenerToForward` and `processPacketForwardToListener`, allow you to inspect or modify the packet contents before forwarding.
+### Built-in Processors
 
-### Functions
+#### Basic Processors
+```zig
+// Pass-through (no processing)
+var processor = udp_proxy.PassThroughProcessor{};
 
-- `init(listen_ip, listen_port, forward_ip, forward_port)`: Initializes the proxy sockets for listening and forwarding.
-- `getPollFds()`: Returns the file descriptors for the listener and forward sockets, which are used for polling.
-- `receiveBuffer(sock, buffer)`: Receives a UDP packet into the provided buffer.
-- `sendBuffer(toSock, buffer)`: Sends the contents of the buffer to the specified socket.
-- `processPacketListenerToForward(buffer, dataLen)`: Processes data received on the listener socket before forwarding it.
-- `processPacketForwardToListener(buffer, dataLen)`: Processes data received on the forward socket before sending it back to the listener.
-- `start()`: Starts the proxy loop, binding the listener socket and handling incoming data with a polling mechanism.
+// Logging with packet information
+var processor = udp_proxy.LoggingProcessor.init(allocator);
+
+// Pattern-based filtering
+var processor = udp_proxy.FilteringProcessor.init("DROP");
+
+// Custom header manipulation
+var processor = udp_proxy.CustomProcessor.init();
+```
+
+#### SRT Protocol Processors
+```zig
+// SRT NAK packet malforming (unidirectional)
+var processor = udp_proxy.SRTNakMalformerProcessor.init();
+
+// SRT NAK packet malforming (bidirectional)
+var processor = udp_proxy.BidirectionalSRTNakMalformerProcessor.init();
+
+// Packet dropping at specific positions
+const DropperType = udp_proxy.PacketDropperProcessor(100);
+var processor = DropperType.init();
+```
+
+### Command Line Tool
+
+```bash
+# Unified proxy executable with processor selection
+./UDP-Proxy 127.0.0.1 8080 192.168.1.100 9090 [processor_type] [args...]
+
+# Available processor types:
+./UDP-Proxy 127.0.0.1 8080 192.168.1.100 9090 passthrough     # Default
+./UDP-Proxy 127.0.0.1 8080 192.168.1.100 9090 logging         # Log packets
+./UDP-Proxy 127.0.0.1 8080 192.168.1.100 9090 filtering SPAM  # Filter pattern
+./UDP-Proxy 127.0.0.1 8080 192.168.1.100 9090 custom          # Header manipulation
+./UDP-Proxy 127.0.0.1 8080 192.168.1.100 9090 srt-nak         # SRT NAK malforming
+./UDP-Proxy 127.0.0.1 8080 192.168.1.100 9090 srt-nak-bidir   # Bidirectional SRT
+./UDP-Proxy 127.0.0.1 8080 192.168.1.100 9090 drop-100        # Drop packets 99-101
+./UDP-Proxy 127.0.0.1 8080 192.168.1.100 9090 drop-1000       # Drop packets 999-1001
+```
+
+## Processor Interface
+
+Processors must implement these methods:
+
+```zig
+pub fn processListenerToForward(self: *@This(), buffer: []u8, packet: []u8) []u8;
+pub fn processForwardToListener(self: *@This(), buffer: []u8, packet: []u8) []u8;
+```
+
+**Parameters:**
+- `buffer`: Full buffer space available for packet expansion
+- `packet`: Current packet data slice within the buffer  
+
+**Return Value:**
+- Return a slice of the processed packet data
+- Return `packet[0..0]` (empty slice) to drop the packet
+- Can return slices larger than input if expanding using buffer space
+- Can return slices smaller than input for packet trimming (e.g. `packet[4..]` to remove header)
+
+**Key Features:**
+- **Zero-copy**: All operations work with slices, no data copying required
+- **Flexible sizing**: Can shrink, expand (within buffer limits), or drop packets
+- **Type safety**: Return slice length automatically matches processed data size
+- **Compile-time verification**: Interface compliance verified at compile time
+
+## Build Targets
+
+- `libud-proxy.a` / `libud-proxy.so` - Static/shared libraries
+- `UDP-Proxy` - Unified executable with all processor types
+- `library-usage-example` - Usage examples
+
+## Examples
+
+The `examples/` directory demonstrates various usage patterns:
+
+```bash
+# Simple API with statistics tracking
+./library-usage-example simple 127.0.0.1 8080 192.168.1.100 9090
+
+# Advanced API with custom event loop  
+./library-usage-example advanced 127.0.0.1 8080 192.168.1.100 9090
+
+# Demonstration of all built-in processors
+./library-usage-example builtin 127.0.0.1 8080 192.168.1.100 9090
+```
+
+## Testing
+
+```bash
+zig build test
+```
+
+## Architecture
+
+- **Generic Types**: `ProxySocketPairGeneric(comptime PacketProcessor: type)`
+- **Compile-time Interface Checking**: Uses `@hasDecl()` for duck typing
+- **Memory Management**: Stack-allocated buffers, RAII cleanup
+- **I/O**: `poll()`-based event loop with configurable timeouts
+
+See `CLAUDE.md` for detailed architecture documentation.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Contributing
-
-Feel free to submit issues and pull requests. Contributions are welcome!
+MIT License

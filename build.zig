@@ -15,19 +15,27 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    //const lib = b.addStaticLibrary(.{
-    //    .name = "UDP-Proxy",
-    //    // In this case the main source file is merely a path, however, in more
-    //    // complicated build scripts, this could be a generated file.
-    //    .root_source_file = b.path("src/root.zig"),
-    //    .target = target,
-    //    .optimize = optimize,
-    //});
+    // Build static library
+    const lib = b.addStaticLibrary(.{
+        .name = "udp-proxy",
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Build shared library
+    const lib_shared = b.addSharedLibrary(.{
+        .name = "udp-proxy",
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
 
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when
     // running `zig build`).
-    //b.installArtifact(lib);
+    b.installArtifact(lib);
+    b.installArtifact(lib_shared);
 
     const exe = b.addExecutable(.{
         .name = "UDP-Proxy",
@@ -36,10 +44,19 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const exe_example = b.addExecutable(.{
+        .name = "library-usage-example",
+        .root_source_file = b.path("examples/library_usage.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    exe_example.root_module.addImport("udp-proxy", lib.root_module);
+
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
     b.installArtifact(exe);
+    b.installArtifact(exe_example);
 
     // This *creates* a Run step in the build graph, to be executed when another
     // step is evaluated that depends on it. The next line below will establish
@@ -66,42 +83,34 @@ pub fn build(b: *std.Build) void {
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
-    //const lib_unit_tests = b.addTest(.{
-    //    .root_source_file = b.path("src/root.zig"),
-    //    .target = target,
-    //    .optimize = optimize,
-    //});
-
-    //const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
-
-    const proxy_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/proxy.zig"),
+    const lib_unit_tests = b.addTest(.{
+        .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    const exe_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
+    const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
+
+    const processors_unit_tests = b.addTest(.{
+        .root_source_file = b.path("src/processors.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    const srt_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/srt.zig"),
+    const proxy_integration_tests = b.addTest(.{
+        .root_source_file = b.path("src/proxy_test.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    const run_proxy_unit_tests = b.addRunArtifact(proxy_unit_tests);
-    const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
-    const run_srt_unit_tests = b.addRunArtifact(srt_unit_tests);
+    const run_processors_unit_tests = b.addRunArtifact(processors_unit_tests);
+    const run_proxy_integration_tests = b.addRunArtifact(proxy_integration_tests);
 
     // Similar to creating the run step earlier, this exposes a `test` step to
     // the `zig build --help` menu, providing a way for the user to request
     // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
-    //test_step.dependOn(&run_lib_unit_tests.step);
-    test_step.dependOn(&run_exe_unit_tests.step);
-    test_step.dependOn(&run_proxy_unit_tests.step);
-    test_step.dependOn(&run_srt_unit_tests.step);
+    test_step.dependOn(&run_lib_unit_tests.step);
+    test_step.dependOn(&run_processors_unit_tests.step);
+    test_step.dependOn(&run_proxy_integration_tests.step);
 }
