@@ -31,10 +31,12 @@ pub fn ProxySocketPairGeneric(comptime PacketProcessor: type) type {
 
                 // Check for required methods
                 if (!@hasDecl(ProcessorType, "processListenerToForward")) {
-                    @compileError("PacketProcessor must have method: processListenerToForward(self: *@This(), buffer: []u8, packet: []u8) []u8");
+                    //@compileError("PacketProcessor must have method: processListenerToForward(self: *@This(), buffer: []u8, packet: []u8) []u8");
+                    @compileError("PacketProcessor missing method processListenerToForward; type: " ++ @typeName(ProcessorType));
                 }
                 if (!@hasDecl(ProcessorType, "processForwardToListener")) {
-                    @compileError("PacketProcessor must have method: processForwardToListener(self: *@This(), buffer: []u8, packet: []u8) []u8");
+                    @compileError("PacketProcessor missing method processForwardToListener; type: " ++ @typeName(ProcessorType));
+                    //@compileError("PacketProcessor must have method: processForwardToListener(self: *@This(), buffer: []u8, packet: []u8) []u8");
                 }
             }
 
@@ -96,7 +98,7 @@ pub fn ProxySocketPairGeneric(comptime PacketProcessor: type) type {
                 toSock.address.getOsSockLen(),
             );
             if (sentBytes != buffer.len) {
-                std.log.warn("Not all bytes sent! Sent {d}/{d} bytes", .{sentBytes, buffer.len});
+                std.log.warn("Not all bytes sent! Sent {d}/{d} bytes", .{ sentBytes, buffer.len });
             }
         }
 
@@ -159,13 +161,13 @@ pub fn ProxySocketPairGeneric(comptime PacketProcessor: type) type {
 
             // Read, process and send packet
             const receivedBytes: usize = try reciveBuffer(from, buffer);
-            
+
             // Call appropriate processor method based on direction
             const processedPacket: []u8 = if (condition)
                 self.processor.processListenerToForward(buffer, buffer[0..receivedBytes])
             else
                 self.processor.processForwardToListener(buffer, buffer[0..receivedBytes]);
-                
+
             if (processedPacket.len > 0) {
                 try sendBuffer(to, processedPacket);
             }
@@ -179,7 +181,7 @@ pub fn ProxySocketPairGeneric(comptime PacketProcessor: type) type {
         // Simple API: Run the proxy with built-in event loop
         pub fn start(self: *Self, timeoutMs: i32) !void {
             try self.bind();
-            
+
             var buffer: [BUFFERSIZE]u8 = undefined;
             std.log.info("Starting proxy loop", .{});
 
@@ -233,4 +235,3 @@ pub fn createDefaultProxy(
         forwardPort,
     );
 }
-
